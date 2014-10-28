@@ -1,56 +1,10 @@
-!================================================!
-!               PREP for rep                     !
-!================================================!
-PROGRAM MAIN
-  use MPI_GRID
-
-  implicit none
-  include './resglo.h90'
-  include 'mpif.h'
-  
-  
-  integer,parameter :: i01=i0+1,i0t1=i0t+1                        &
-                  ,j01=j0+1,j0t1=j0t+1                            &
-                  ,nbg0=nb0*ngy0,nbg1=nbg0-1,ibir=i2t/ngy0
-  real*8            :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1),h(i0,j0),ie(nb0)
-  real*8, dimension(i2,j2) :: al,ab,ac,ar,at
-  integer :: n
-   
-  
-  call MPI_INIT(ierr)
-  call MPI_COMM_SIZE(mpi_comm_world,nprocs,ierr)
-  call MPI_COMM_RANK(mpi_comm_world,myid,ierr)
-
-  IF (NPROCS .ne. NG0) THEN
-        PRINT*,'NUMBER of PROCESSORs are not equal to NG0'
-        CALL MPI_FINALIZE(IERR)
-        stop
-  ENDIF
-
-  DO N=1,NB0
-    IE(N)=MIN(1+N0*N,J1)
-  end do
-  WRITE(*,*) NB0, IE
-  WRITE(*,251) IE
-  251  FORMAT('IE'/(20I4))
-  IF (IE(NB0).GT.IE(NB1).AND.J1.LT.IE(NB1)+9) GO TO 260
-  WRITE(*,252) IE(NB1),J1
-  252  FORMAT('IE(NB1),J1=',2I5,' not properly defined. ' &
-           ,'Fix above DO 250 loop and restart.')
-
-  CALL MPI_GRID_GEN
-
-
-end PROGRAM MAIN
-
 module MPI_GRID
+  use mpi
   implicit none
-  include 'mpif.h'
 
   character, public :: grd*7
   integer, public   :: mpi_comm_2d,mpi_comm_lon,mpi_comm_lat,nproc,myid, & 
-              mylon, mylat,ierr,mpi_n,mpi_e,mpi_s,mpi_w,istat(mpi_status_size)
-
+              mylon, mylat,ierr,mpi_n,mpi_e,mpi_s,mpi_w, istat(MPI_STATUS_SIZE)
 
   public :: MPI_GRID_GEN
 
@@ -93,4 +47,50 @@ contains
  end subroutine MPI_GRID_GEN
 end module MPI_GRID
 
+
+
+!================================================!
+!               PREP for rep                     !
+!================================================!
+PROGRAM MAIN
+  use MPI_GRID
+  use mpi
+
+  implicit none
+  include './resglo.h90'
+  
+  
+  integer,parameter :: i01=i0+1,i0t1=i0t+1                        &
+                  ,j01=j0+1,j0t1=j0t+1                            &
+                  ,nbg0=nb0*ngy0,nbg1=nbg0-1,ibir=i2t/ngy0
+  real*8            :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1),h(i0,j0),ie(nb0)
+  real*8, dimension(i2,j2) :: al,ab,ac,ar,at
+  integer :: n, nprocs
+   
+  
+  call MPI_INIT(ierr)
+  call MPI_COMM_SIZE(mpi_comm_world,nprocs,ierr)
+  call MPI_COMM_RANK(mpi_comm_world,myid,ierr)
+
+  IF (NPROCS .ne. NG0) THEN
+        PRINT*,'NUMBER of PROCESSORs are not equal to NG0'
+        CALL MPI_FINALIZE(IERR)
+        stop
+  ENDIF
+
+  DO N=1,NB0
+    IE(N)=MIN(1+N0*N,J1)
+  end do
+  WRITE(*,*) NB0, IE
+  WRITE(*,251) IE
+  251  FORMAT('IE'/(20I4))
+  IF (IE(NB0).le.IE(NB1).or.J1.ge.IE(NB1)+9) then
+  WRITE(*,252) IE(NB1),J1
+  252  FORMAT('IE(NB1),J1=',2I5,' not properly defined. ' &
+           ,'Fix above DO 250 loop and restart.') 
+  endif
+  CALL MPI_GRID_GEN
+
+
+end PROGRAM MAIN
 
