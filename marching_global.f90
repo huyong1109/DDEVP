@@ -1,3 +1,12 @@
+module domain
+  implicit none
+  include './resglo.h'
+  
+  integer,parameter :: i01=i0+1,i0t1=i0t+1,j01=j0+1,j0t1=j0t+1,&
+    nbg0=nb0*ngy0,nbg1=nbg0-1,ibir=i2t/ngy0
+
+end module domain
+
 module MPI_GRID
 use mpi
 implicit none
@@ -10,8 +19,8 @@ public :: mpi_grid_gen
 
 contains
 subroutine mpi_grid_gen
+  use domain
 
-  include './resglo.h90'
   integer, dimension(2) ::  ndim
   logical, dimension(2) ::  peri,rdim1,rdim2
 
@@ -56,23 +65,15 @@ end subroutine MPI_GRID_GEN
 
 end module MPI_GRID
 
-module domain
-  implicit none
-  include './resglo.h90'
-  
-  integer,parameter :: i01=i0+1,i0t1=i0t+1,j01=j0+1,j0t1=j0t+1,&
-    nbg0=nb0*ngy0,nbg1=nbg0-1,ibir=i2t/ngy0
-
-end module domain
 
 
 !================================================!
 !               PREP for rep                     !
 !================================================!
 PROGRAM MAIN
-  use mpi_grid
   use mpi
   use domain
+  use mpi_grid
   
   implicit none
   
@@ -148,8 +149,10 @@ PROGRAM MAIN
   close(99)
   
   if(myid == 0) then
-    print*,'EVP has finished successfully.'
+    print*,'EVP PREP has finished successfully.'
   endif
+  call solver
+
   call mpi_finalize(ierr)
 
 end PROGRAM MAIN
@@ -244,13 +247,11 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
           endif
         endif
 
-        write(*,*)  "before sendrecv" 
 
         call mpi_sendrecv(h(2,jg),1,mpi_real8,mpi_w,1,h(i0,jg),1, &
           mpi_real8,mpi_e,1,mpi_comm_world,istat,ierr)
         call mpi_sendrecv(h(i1,jg),1,mpi_real8,mpi_e,1,h(1,jg),1, &
           mpi_real8,mpi_w,1,mpi_comm_world,istat,ierr)
-        write(*,*)  "after sendrecv" 
         if (nbg .ne. 1) then
           if (idxy .eq. mylon) then
             if (nb .ne. 1) then
@@ -267,7 +268,6 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
               endif
             endif
           endif
-          write(*,*)  "before bcast" 
 
           call mpi_bcast(ctemp,1,mpi_real,idxy,mpi_comm_lon,ierr)
           do n=1,i0
@@ -308,12 +308,10 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
 
       nsend=i2*ibir
 
-      write(*,*)  "before gather" ,myid
 
       call mpi_gather(rinv(1,2,nbg),nsend,mpi_real8,rp(1),nsend, &
         mpi_real8,0,mpi_comm_world,ierr)
 
-      write(*,*)  "after gather", myid
 
       if (myid .eq. 0) then
         do  nx=1,ngx0
@@ -409,7 +407,218 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   end do ! loop 100
 end subroutine pre
 
+subroutine solver
+  use mpi  
+  use domain
+  use mpi_grid
+  implicit none
+  real*8 :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1)
+  real*8 :: dum0(i0,nb0), dum1(ibir),dum2(i0),dumg(i2t)
+  real*8 :: f(i2,j2),x(i0,j0)
+  real*8 :: al(i2,j2),ab(i2,j2),ac(i2,j2),ar(i2,j2),at(i2,0:j2) ,s(i2,j2),ie(nb0)
+
+  integer :: i,j
+  real*8 :: time
 
 
 
+  ! set initial and left-hand value
+  do j=2,j1
+    do i=2,i1
+      x(i,j)=0.d0
+      f(i,j)=1
+    enddo 
+  enddo
+
+  do j=1,j0
+    x(i0,j)=0.d0
+    x(1,j)=0.d0
+  enddo
+
+  do i=1,i0
+    x(i,1)=0.d0
+    x(i,j0)=0.d0
+  enddo
+
+  time=mpi_wtime()
+  open(99,file='./data/evp'//grd,form='unformatted')
+  if(myid.eq.0) write(*,*)'evp solver'
+  read(99) al,ar,ab,at,ac,rinv,rinv1,ie
+  close(99)
+
+  call rep(al,ab,ac,ar,at,rinv,rinv1,dum0,dum1,dum2,dumg,s,x,ie)
+
+  time=mpi_wtime()-time
+  print*,myid,time/1000
+
+  open(99,file='./evpans'//grd,form='unformatted')
+  write(99) x(2:i2,2:j1)
+  close(99)
+
+
+end subroutine solver
+
+
+
+! --------------------------REP2 from Global.F--------------------------------------------
+subroutine rep(ax,ay,bb,cx,cy,rinv,rinv1,dum0,dum1,dum2,dumg,f,x,ie) 
+! ----------------------------------------------------------------------
+  use mpi  
+  use domain
+  use mpi_grid
+  implicit none
+  !!!INPUT 
+  real*8 :: ax(i2,j2),ay(i2,j2),bb(i2,j2),cx(i2,j2),cy(i2,0:j2), &
+    f(i2,j2),rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1),ie(nb0),&
+    dum0(i0,nb0),dum1(ibir),dum2(i0),x(i0,j0),dumg(i2t)
+
+  !!!LOCAL
+  integer :: i,j,jsp,jfp
+  integer :: n,m,ng,nb,nbs,nbg
+  real*8  :: dd
+
+
+  do  ng=0,ngy0-1
+    jsp=1
+    do nb=1,nb0
+      nbg=ng*nb0+nb
+      if (mylat .eq. ng) then
+        jfp=ie(nb)-2
+        do  j=jsp,jfp
+          do  i=1,i2
+            x(i+1,j+2)=(f(i,j)-ax(i,j)*x(i,j+1)-ay(i,j)*x(i+1,j)-bb(i,j)* &
+              x(i+1,j+1)-cx(i,j)*x(i+2,j+1))/cy(i,j)
+          enddo
+          call mpi_sendrecv(x(2,j+2),1,mpi_real8,mpi_w,1,x(i0,j+2),1, &
+            mpi_real8,mpi_e,1,mpi_comm_2d,istat,ierr)
+          call mpi_sendrecv(x(i1,j+2),1,mpi_real8,mpi_e,1,x(1,j+2),1,&
+            mpi_real8,mpi_w,1,mpi_comm_2d,istat,ierr)
+        enddo
+        if (nbg.ne.nbg0) then
+          j=ie(nb)-1
+          do i=1,i2
+            dum2(i)=f(i,j)-ax(i,j)*x(i,j+1)-ay(i,j)*x(i+1,j)-bb(i,j)* &
+              x(i+1,j+1)-cx(i,j)*x(i+2,j+1)-cy(i,j)*x(i+1,j+2)
+          enddo
+          j=ie(nb)
+          call mpi_allgather(dum2,i2,mpi_real8,dumg,i2,mpi_real8, &
+            mpi_comm_lon,ierr)
+          do n=1,i0
+            dum2(n)=x(n,j)
+            dum0(n,nb)=x(n,j)
+          end do
+          dd=1.d0
+        endif
+      else
+        if (nbg .ne. nbg0) then
+          dd=0.d0
+        endif
+      endif
+      if (nbg.ne.nbg0) then
+        call mpi_scatter(dumg,ibir,mpi_real8,dum1,ibir,mpi_real8,ng, &
+          mpi_comm_lat,ierr)
+        call dgemv('t',ibir,i0,-1.d0,rinv1(1,1,nbg),ibir,dum1,1,dd,dum2,1)
+        if (nb .ne. nb0) then
+          call mpi_reduce(dum2,x(1,ie(nb)),i0,mpi_real8,mpi_sum,ng, &
+            mpi_comm_lat,ierr)
+          jsp=ie(nb)
+        endif
+      endif
+
+    enddo 
+    if (nbg.ne.nbg0) then
+      call mpi_reduce(dum2,x(1,1),i0,mpi_real8,mpi_sum,ng+1, &
+        mpi_comm_lat,ierr)
+    endif
+  enddo
+
+  do ng=ngy0-1,0,-1
+    do  nbs=1,nb0
+      nb=nb0-nbs+1
+      nbg=nb0*ng+nb
+
+      jsp=1
+      if (nb.ne.1) jsp=ie(nb-1)
+      if (mylat .eq. ng) then
+        if (nbg.ne.nbg0) then
+          j=ie(nb)
+          do  n=1,i0
+            x(n,j)=dum0(n,nb)
+          enddo
+        endif
+        j=ie(nb)-1
+        do  i=1,i2
+          dum2(i)=f(i,j)-ax(i,j)*x(i,j+1)-ay(i,j)*x(i+1,j)-bb(i,j)* &
+            x(i+1,j+1)-cx(i,j)*x(i+2,j+1)-cy(i,j)*x(i+1,j+2)
+        enddo
+        call mpi_allgather(dum2,i2,mpi_real8,dumg,i2,mpi_real8,&
+          mpi_comm_lon,ierr)
+      endif
+
+      call mpi_scatter(dumg,ibir,mpi_real8,dum1,ibir,mpi_real8,ng, &
+        mpi_comm_lat,ierr)
+      call dgemv('t',ibir,i0,1.d0,rinv(1,1,nbg),ibir,dum1,1,0.d0,dum2,1)
+      call mpi_reduce(dum2,dum0(1,nb),i0,mpi_real8,mpi_sum,ng, &
+        mpi_comm_lat,ierr)
+
+      if (mylat .eq. ng) then
+        do n=1,i0
+          x(n,jsp+1)=x(n,jsp+1)+dum0(n,nb)
+        enddo
+      endif
+      if (nbg.ne.1) then
+        if (mylat .eq. ng) then
+          do m=1,i2
+            dum2(m)=dum0(m+1,nb)*cy(m,jsp-1)
+          enddo
+          call mpi_allgather(dum2,i2,mpi_real8,dumg,i2,mpi_real8,&
+            mpi_comm_lon,ierr)
+        endif
+        call mpi_scatter(dumg,ibir,mpi_real8,dum1,ibir,mpi_real8,ng,&
+          mpi_comm_lat,ierr)
+        call dgemv('t',ibir,i0,1.d0,rinv1(1,1,nbg-1),ibir,dum1,&
+          1,0.d0,dum2,1)
+        call mpi_reduce(dum2,dum0(1,nb),i0,mpi_real8,mpi_sum,ng,&
+          mpi_comm_lat,ierr)
+        if (mylat .eq. ng) then
+          do n=1,i0
+            dum0(n,nb)=x(n,jsp)+dum0(n,nb)
+          enddo
+        endif
+      endif
+    enddo
+    if (nbg.ne.1) then
+      if (mylat .eq. ng) &
+        call mpi_send(x(1,2),i0,mpi_real8,mpi_s,1,mpi_comm_2d,ierr)
+      if (mylat .eq. ng-1) &
+        call mpi_recv(x(1,j0),i0,mpi_real8,mpi_n,1,mpi_comm_2d,istat,ierr)
+    endif
+  enddo
+  if (mylat .eq. 0) then
+    do i=1,i0
+      dum0(i,1)=0.d0
+    enddo
+  endif
+
+  jsp=1
+  do nb=1,nb0
+    jfp=ie(nb)-2
+    if (nb.eq.nb0) jfp=ie(nb)-2
+    do i=1,i0
+      x(i,jsp)=dum0(i,nb)
+    enddo
+    do j=jsp,jfp
+      do i=1,i2
+        x(i+1,j+2)=(f(i,j)-ax(i,j)*x(i,j+1)-ay(i,j)*x(i+1,j)-bb(i,j)* &
+          x(i+1,j+1)-cx(i,j)*x(i+2,j+1))/cy(i,j)
+      enddo
+      call mpi_sendrecv(x(2,j+2),1,mpi_real8,mpi_w,1,x(i0,j+2),1, &
+        mpi_real8,mpi_e,1,mpi_comm_2d,istat,ierr)
+      call mpi_sendrecv(x(i1,j+2),1,mpi_real8,mpi_e,1,x(1,j+2),1, &
+        mpi_real8,mpi_w,1,mpi_comm_2d,istat,ierr)
+    enddo
+    jsp=ie(nb)
+  enddo 
+
+end subroutine rep
 
