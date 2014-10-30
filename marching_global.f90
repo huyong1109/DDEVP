@@ -184,7 +184,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   real*8,dimension(i2t)     :: ipvt
   real*8                    :: ctemp
 
-  do ng = 1, ngy0 !loop 100
+  do ng = 1, ngy0 !loop 100 : proceed by mpi_comm_lat
     jl =1
     if(mylat == ng-1) then
       do j = 1,j2
@@ -219,16 +219,18 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
       end do
     end if
 
-    do nb = 1, nb0
-      nbg = (ng-1)*nb0+nb
+    do nb = 1, nb0  !!! proceed by block on ng
+      nbg = (ng-1)*nb0+nb !!! global block index
       write(*,*) nb, nb, nb0
       write(*,111) nbg,nbg0
       111  format ('processing block #',i3,' out of ',i3,' total evp solver')
-      jh=ie(nb)
-      jhp=jh+1
+      jh=ie(nb)  !!! last line of #nb block, initial line of netx block
+      jhp=jh+1   !!! up boundary of #nb block second(guess) line of #(nb+1) block
       jhm=jh-2
-      jg=jl+1
-
+      jg=jl+1    !!! guess line
+      
+      !!!! different comm_lat processors handle different initial value case for block ng
+      !!!! each comm_lat has i2t/ngy0 cases
       do ii =1, ibir
         ig=mylat*ibir+ii
         idxy=(ig-1)/i2
@@ -240,11 +242,13 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
         end do
 
         if (idxy .eq. mylon) then
-          if (mod(ig,i2) .eq. 0) then
-            h(i1,jg)=1.d0
-          else
-            h(mod(ig,i2)+1,jg)=1.d0
-          endif
+          inmod=mod(ig-1,i2)+2
+          h(inmod,jg)=1.d0
+          !if (mod(ig,i2) .eq. 0) then
+          !  h(i1,jg)=1.d0
+          !else
+          !  h(mod(ig,i2)+1,jg)=1.d0
+          !endif
         endif
 
 
@@ -254,18 +258,23 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
           mpi_real8,mpi_w,1,mpi_comm_world,istat,ierr)
         if (nbg .ne. 1) then
           if (idxy .eq. mylon) then
+
+              inmod = mod(ig-1,i2)+1
             if (nb .ne. 1) then
-              if (mod(ig,i2) .eq. 0) then
-                ctemp=cyt(i2,jg-2)
-              else
-                ctemp=cyt(mod(ig,i2),jg-2)
-              endif
+              !if (mod(ig,i2) .eq. 0) then
+              !  ctemp=cyt(i2,jg-2)
+              !else
+              !  ctemp=cyt(mod(ig,i2),jg-2)
+              !endif
+              ctemp=cyt(inmod,jg-2)
+
             else
-              if (mod(ig,i2) .eq. 0) then
-                ctemp=ct(i2)
-              else
-                ctemp=ct(mod(ig,i2))
-              endif
+              !if (mod(ig,i2) .eq. 0) then
+              !  ctemp=ct(i2)
+              !else
+              !  ctemp=ct(mod(ig,i2))
+              !endif
+              ctemp=ct(inmod)
             endif
           endif
 
@@ -274,6 +283,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
             h(n,jl)=rinv1(ii,n,nbg-1)*ctemp
           end do
         endif
+
         do j=jl,jhm
           do  i=1,i2
             h(i+1,j+2)=-(axt(i,j)*h(i,j+1)+ayt(i,j)*h(i+1,j)+ &
@@ -297,18 +307,19 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
             rinv(ii,n,nbg0)=h(n,j)
           end do
           if (idxy .eq. mylon) then
-            if (mod(ig,i2) .eq. 0) then
-              h(i1,jg)=0.d0
-            else
-              h(mod(ig,i2)+1,jg)=0.d0
-            endif
+            inmod = mod(ig-1,i2) +2
+            h(inmod,jg) = 0.d0
+            !if (mod(ig,i2) .eq. 0) then
+            !  h(i1,jg)=0.d0
+            !else
+            !  h(mod(ig,i2)+1,jg)=0.d0
+            !endif
           endif
         endif
+
       enddo
 
       nsend=i2*ibir
-
-
       call mpi_gather(rinv(1,2,nbg),nsend,mpi_real8,rp(1),nsend, &
         mpi_real8,0,mpi_comm_world,ierr)
 
@@ -344,6 +355,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
           end do
         enddo
       endif
+
       call mpi_bcast(info,1,mpi_integer,0,mpi_comm_world,ierr)
       print*,'info =',info
       if (info .ne. 0) then
@@ -376,6 +388,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
         enddo
       enddo
       if (nbg.eq.nbg0) return
+
       nsend=i0*ibir
       call mpi_allgather(rinv(1,1,nbg0),nsend,mpi_real8,rp,nsend, &
         mpi_real8,mpi_comm_lat,ierr)
@@ -407,6 +420,28 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   end do ! loop 100
 end subroutine pre
 
+subroutine pre_check(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
+  use domain
+  use mpi_grid
+  implicit none
+
+  !INPUT VARIABLES
+  real*8, dimension(nb0),intent(in)        :: ie
+  real*8, dimension(i2,j2),intent(in)      :: ax, ay, bb, cx
+  real*8, dimension(i2,0:j2),intent(inout) :: cy
+
+  !OUTPUT VARIABLES
+  real*8, dimension(ibir, i0, nbg0),intent(inout) :: rinv
+  real*8, dimension(ibir, i0, nbg1),intent(inout) :: rinv1
+  real*8, dimension(i0,j0),intent(inout) :: h
+
+  !LOCAL VARIABLES
+  integer :: i,j,k,jl,jh,jg,jhm,ii,ig,jhp,it,jt,jss,jff,info
+  integer :: n,nsd,ng,nb,nbg,idxy, nsend,nx,ny,ngt,ngxt,nt
+
+
+end subroutine pre_check
+
 subroutine solver
   use mpi  
   use domain
@@ -423,36 +458,49 @@ subroutine solver
 
 
   ! set initial and left-hand value
-  do j=2,j1
-    do i=2,i1
-      x(i,j)=0.d0
-      f(i,j)=1
-    enddo 
-  enddo
+  !do j=2,j1
+  !  do i=2,i1
+  !    x(i,j)=0.d0
+  !    f(i-1,j-1)=1
+  !  enddo 
+  !enddo
 
-  do j=1,j0
-    x(i0,j)=0.d0
-    x(1,j)=0.d0
-  enddo
+  !do j=1,j0
+  !  x(i0,j)=0.d0
+  !  x(1,j)=0.d0
+  !enddo
 
-  do i=1,i0
-    x(i,1)=0.d0
-    x(i,j0)=0.d0
-  enddo
+  !do i=1,i0
+  !  x(i,1)=0.d0
+  !  x(i,j0)=0.d0
+  !enddo
 
   time=mpi_wtime()
   open(99,file='./data/evp'//grd,form='unformatted')
   if(myid.eq.0) write(*,*)'evp solver'
   read(99) al,ar,ab,at,ac,rinv,rinv1,ie
   close(99)
+  ! test case 
+  x(:,:) = 1.0
+
+
+
+  do  j=1,j2
+  do  i=1,i2
+     f(i,j)= al(i,j)*x(i,j+1)+ab(i,j)*x(i+1,j)+ac(i,j)* &
+      x(i+1,j+1)+ar(i,j)*x(i+2,j+1)+at(i,j)*x(i+1,j+2)
+    write(*,*) i,j,f(i,j)
+  enddo
+  enddo
 
   call rep(al,ab,ac,ar,at,rinv,rinv1,dum0,dum1,dum2,dumg,s,x,ie)
 
   time=mpi_wtime()-time
   print*,myid,time/1000
 
+  write(*,*) x(2:i1,2:j1)
   open(99,file='./evpans'//grd,form='unformatted')
-  write(99) x(2:i2,2:j1)
+  write(99) x(2:i1,2:j1)
   close(99)
 
 
