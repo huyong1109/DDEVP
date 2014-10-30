@@ -23,6 +23,7 @@ subroutine mpi_grid_gen
 
   integer, dimension(2) ::  ndim
   logical, dimension(2) ::  peri,rdim1,rdim2
+  integer :: n
 
   ndim(1)=ngx0
   ndim(2)=ngy0
@@ -53,13 +54,8 @@ subroutine mpi_grid_gen
   !  -------------------------------
 
   write(grd,'(i3.3,a1,i3.3)')mylon,'_',mylat
-  call mpi_barrier(mpi_comm_world,ierr)
-  if (myid == 0) then
-    write(*,*) '      myid         up           dwon           left    right'
-  endif
-  call mpi_barrier(mpi_comm_world,ierr)
+  write(*,*) '      myid         up           dwon           left    right'
   write(*,*) myid, mpi_n, mpi_s, mpi_w, mpi_e
-  call mpi_barrier(mpi_comm_world,ierr)
 
 end subroutine MPI_GRID_GEN
 
@@ -78,7 +74,7 @@ PROGRAM MAIN
   implicit none
   
   
-  real*8            :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1),h(i0,j0),ie(nb0)
+  real*8  :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1),h(i0,j0),ie(nb0)
   real*8, dimension(i2,j2) :: al,ab,ac,ar
   real*8, dimension(i2,0:j2) :: at
   real*8 by,ay,bx,ax,dx,dy
@@ -99,9 +95,7 @@ PROGRAM MAIN
   do n=1,nb0
     ie(n)=min(1+n0*n,j1)
   end do
-  write(*,*) nb0, ie
-  write(*,251) ie
-  251  format('ie'/(20i4))
+  write(*,*) 'ie :', ie(:)
   if (ie(nb0).le.ie(nb1).or.j1.ge.ie(nb1)+9) then
     write(*,252) ie(nb1),j1
     252  format('ie(nb1),j1=',2i5,' not properly defined. ' &
@@ -120,6 +114,7 @@ PROGRAM MAIN
   dy=(by-ay)/dble(j0t)
   dx=(bx-ax)/dble(i0t)
   
+  open(199,file='./log'//grd,form='formatted')
   
   time=mpi_wtime()
   
@@ -143,15 +138,22 @@ PROGRAM MAIN
   call pre(al,ab,ac,ar,at,rinv,rinv1,h,ie)
   
   
-  open(99,file='./data/evp'//grd,form='unformatted')
+  open(99,file='./data/evp'//grd,form='formatted')
   rewind 99
-  write(99) al,ar,ab,at,ac,rinv,rinv1,ie
+  write(99,*) al,ar,ab,at,ac
+  write(99,*) "rinv"
+  write(99,*) rinv
+  write(99,*) "rinv"
+  write(99,*) rinv1
+  write(99,*) ie
   close(99)
   
   if(myid == 0) then
     print*,'EVP PREP has finished successfully.'
   endif
   call solver
+  
+  close(199)
 
   call mpi_finalize(ierr)
 
@@ -174,7 +176,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   real*8, dimension(i0,j0),intent(inout) :: h
 
   !LOCAL VARIABLES
-  integer :: i,j,k,jl,jh,jg,jhm,ii,ig,jhp,it,jt,jss,jff,info
+  integer :: i,j,k,jl,jh,jg,jhm,ii,ig,jhp,it,jt,jss,jff,info,inmod
   integer :: n,nsd,ng,nb,nbg,idxy, nsend,nx,ny,ngt,ngxt,nt
   real*8,dimension(i2,j2)   :: axt,ayt,bbt,cxt,cyt
   real*8,dimension(i2t,i0t) :: rtemp
@@ -183,7 +185,9 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   real*8,dimension(i2)      :: ct
   real*8,dimension(i2t)     :: ipvt
   real*8                    :: ctemp
+  
 
+  ct(:) = 0.d0
   do ng = 1, ngy0 !loop 100 : proceed by mpi_comm_lat
     jl =1
     if(mylat == ng-1) then
@@ -197,6 +201,9 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
         end do
       end do
     endif
+    
+        write(199,*)   'cy:'
+        write(199,*)   cy(:,:)
 
     if (mylat == ng-2) then !!! ??? boundary along y 
       do i =1, i2
@@ -205,13 +212,18 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
     end if
     
     nsd=i2*j2
-    call mpi_bcast(axt,nsd,mpi_real,ng-1,mpi_comm_lat,ierr)
-    call mpi_bcast(ayt,nsd,mpi_real,ng-1,mpi_comm_lat,ierr)
-    call mpi_bcast(bbt,nsd,mpi_real,ng-1,mpi_comm_lat,ierr)
-    call mpi_bcast(cxt,nsd,mpi_real,ng-1,mpi_comm_lat,ierr)
-    call mpi_bcast(cyt,nsd,mpi_real,ng-1,mpi_comm_lat,ierr)
+    call mpi_bcast(axt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
+    call mpi_bcast(ayt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
+    call mpi_bcast(bbt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
+    call mpi_bcast(cxt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
+
+        write(199,*)   'cyt before bcast:, nsd', nsd
+        write(199,*)   cyt(:,:)
+    call mpi_bcast(cyt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
+        write(199,*)   'cyt after bcast:'
+        write(199,*)   cyt(:,:)
     if (ng /= 1)  &
-      call mpi_bcast(ct,i2,mpi_real,ng-2,mpi_comm_lat,ierr)
+      call mpi_bcast(ct,i2,mpi_real8,ng-2,mpi_comm_lat,ierr)
 
     if(mylat == ng-1) then
       do i = 1, i2
@@ -240,67 +252,64 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
             h(i,j)=0.d0
           end do
         end do
-
+        !!! set the only nonzero value on each comm_lat group
         if (idxy .eq. mylon) then
           inmod=mod(ig-1,i2)+2
           h(inmod,jg)=1.d0
-          !if (mod(ig,i2) .eq. 0) then
-          !  h(i1,jg)=1.d0
-          !else
-          !  h(mod(ig,i2)+1,jg)=1.d0
-          !endif
         endif
 
-
+        !!! exchange boundary
         call mpi_sendrecv(h(2,jg),1,mpi_real8,mpi_w,1,h(i0,jg),1, &
           mpi_real8,mpi_e,1,mpi_comm_world,istat,ierr)
         call mpi_sendrecv(h(i1,jg),1,mpi_real8,mpi_e,1,h(1,jg),1, &
           mpi_real8,mpi_w,1,mpi_comm_world,istat,ierr)
+
+        !!! get coefficient value of the bottom boundary line
+        !!! if nb not equal to 1, it comes from itself
+        !!! otherwise, it comes from south processor
         if (nbg .ne. 1) then
           if (idxy .eq. mylon) then
-
               inmod = mod(ig-1,i2)+1
             if (nb .ne. 1) then
-              !if (mod(ig,i2) .eq. 0) then
-              !  ctemp=cyt(i2,jg-2)
-              !else
-              !  ctemp=cyt(mod(ig,i2),jg-2)
-              !endif
               ctemp=cyt(inmod,jg-2)
-
             else
-              !if (mod(ig,i2) .eq. 0) then
-              !  ctemp=ct(i2)
-              !else
-              !  ctemp=ct(mod(ig,i2))
-              !endif
               ctemp=ct(inmod)
             endif
           endif
 
-          call mpi_bcast(ctemp,1,mpi_real,idxy,mpi_comm_lon,ierr)
+          !!! form bottom boundary value according to the F-error of this
+          !!!   boundary
+          !!! RINV1 :
+          call mpi_bcast(ctemp,1,mpi_real8,idxy,mpi_comm_lon,ierr)
           do n=1,i0
             h(n,jl)=rinv1(ii,n,nbg-1)*ctemp
           end do
         endif
 
+        !!! marching from the line above guess line
         do j=jl,jhm
           do  i=1,i2
             h(i+1,j+2)=-(axt(i,j)*h(i,j+1)+ayt(i,j)*h(i+1,j)+ &
               bbt(i,j)*h(i+1,j+1)+cxt(i,j)*h(i+2,j+1))/cyt(i,j)
           end do 
+          !!! exchange boundary everytime. Optimaztion needed
           call mpi_sendrecv(h(2,j+2),1,mpi_real8,mpi_w,1,h(i0,j+2),1, &
             mpi_real8,mpi_e,1,mpi_comm_world,istat,ierr)
           call mpi_sendrecv(h(i1,j+2),1,mpi_real8,mpi_e,1,h(1,j+2),1, &
             mpi_real8,mpi_w,1,mpi_comm_world,istat,ierr)
         end do
 
+        write(199,*) 'HHHHH'
+        write(199,*) h(:,:)
+
+        !!! F error
         j=jh-1
         do i=1,i2
           rinv(ii,i+1,nbg)=axt(i,j)*h(i,j+1)+ayt(i,j)*h(i+1,j)+bbt(i,j)* &
             h(i+1,j+1)+cxt(i,j)*h(i+2,j+1)
         end do
 
+        !!! save E error of last line
         if (nbg.ne.nbg0) then
           j=ie(nb)
           do n=1,i0
@@ -309,21 +318,25 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
           if (idxy .eq. mylon) then
             inmod = mod(ig-1,i2) +2
             h(inmod,jg) = 0.d0
-            !if (mod(ig,i2) .eq. 0) then
-            !  h(i1,jg)=0.d0
-            !else
-            !  h(mod(ig,i2)+1,jg)=0.d0
-            !endif
           endif
         endif
 
       enddo
+      
 
+      write(*,*) 'PRE nb= ', nbg
+      write(*,*) 'rinv'
+      write(*,'(4f11.5)') rinv(:,:,nbg)
+
+
+      !!! gather rinv for each block
       nsend=i2*ibir
+
       call mpi_gather(rinv(1,2,nbg),nsend,mpi_real8,rp(1),nsend, &
         mpi_real8,0,mpi_comm_world,ierr)
 
 
+      !!! reshape rinv
       if (myid .eq. 0) then
         do  nx=1,ngx0
           ngxt=(nx-1)*ngy0
@@ -365,9 +378,9 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
       endif
       nsend=i2t*i2t
       call mpi_bcast(rtp,nsend,mpi_real8,0,mpi_comm_world,ierr)
+
       it=mylon*i2
       jt=mylat*ibir
-
       jss=1
       jff=i0
       if (mylon .eq.0) then
@@ -376,18 +389,21 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
         enddo
         jss=2
       endif
+
       if (mylon .eq. ngx1) then
         do i=1,ibir
           rinv(i,i0,nbg)=rtp(jt+i,1)
         enddo
         jff=i1
       endif
+
       do  j=jss,jff
         do  i=1,ibir
           rinv(i,j,nbg)=rtp(jt+i,it+j-1)
         enddo
       enddo
       if (nbg.eq.nbg0) return
+
 
       nsend=i0*ibir
       call mpi_allgather(rinv(1,1,nbg0),nsend,mpi_real8,rp,nsend, &
@@ -403,6 +419,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
         enddo
       enddo
 
+      !!! RINV1 : from F-error of last line to its Error
       it=ibir*mylat
       do  i=1,ibir
         do  j=1,i0
@@ -420,7 +437,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   end do ! loop 100
 end subroutine pre
 
-subroutine pre_check(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
+subroutine pre_check(ax,ay,bb,cx,cy,rinv,rinv1,ie)
   use domain
   use mpi_grid
   implicit none
@@ -433,7 +450,6 @@ subroutine pre_check(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   !OUTPUT VARIABLES
   real*8, dimension(ibir, i0, nbg0),intent(inout) :: rinv
   real*8, dimension(ibir, i0, nbg1),intent(inout) :: rinv1
-  real*8, dimension(i0,j0),intent(inout) :: h
 
   !LOCAL VARIABLES
   integer :: i,j,k,jl,jh,jg,jhm,ii,ig,jhp,it,jt,jss,jff,info
