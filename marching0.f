@@ -1,11 +1,11 @@
       implicit DOUBLE PRECISION (a-h,o-z)
       include 'mpif.h'
-      PARAMETER(NGRID=4,I0=19,J0=66,NB0=4,NBG0=NB0*NGRID)
+      PARAMETER(NGRID=4,I0=8,J0=10,NB0=2,NBG0=NB0*NGRID)
       PARAMETER(IJ0=I0+J0,IJ1=IJ0-1,I1=I0-1,I2=I0-2,I3=I0-3,J1=J0-1,
      1 J2=J0-2,J3=J0-3,NB1=NB0-1)
       REAL*8 RINV,RINV1,DUM0,DUM1,DUM2,X,H
-      REAL*8 EHAT,CCOL,BINV,CINV,ETMP,EBUF
-      REAL AL,AB,AC,AR,AT,DX,DY,F
+      REAL*8 CCOL,BINV,CINV,ETMP,EBUF
+      REAL*8 AL,AB,AC,AR,AT,DX,DY,F
       REAL*8 BY,AY,BX,AX
       REAL*8 R,RB,RBUF,XSB,XRB,XSB1,XRB1
       INTEGER ID,IP,IM,JS,JF,IDM,NNY
@@ -14,7 +14,7 @@
       CHARACTER*50 fname
       DIMENSION IE(NB0),ID(NB0),IP(NB0),IM(NB0),JS(NB0),JF(NB0),
      1          IDM(NB0,2),ISTAT(MPI_STATUS_SIZE),IPVT(NBG0*J2)
-      DIMENSION EHAT(J2,J2,I0,2),CCOL(NBG0*J2,NB0*J2),
+      DIMENSION CCOL(NBG0*J2,NB0*J2),
      1          BINV(NBG0*J2,NBG0*J2),CINV(NBG0*J2,NBG0*J2),
      2          ETMP(J2,J2,2,NB0,2),EBUF(J2,J2,4)
       DIMENSION ALSBUF(J2),ALRBUF(J2)
@@ -30,13 +30,13 @@
 
       write(fname,'(A3,I2.2,A4)')'Inf',MYID,'.out'
       OPEN(99,file=fname,form='unformatted')
-      READ(99) AL,AR,AB,AT,AC,CCOL,EHAT,IDM,IP,ID,IM,JS,JF
+      READ(99) al,ab,ac,ar,at,ccol,id,ip,im,js,jf
 
 C      if (.false.) then
       DO 100 J=2,J1
           DO 100 I=2,I1
       X(I,J)=0.d0
- 100  F(I,J)=1
+ 100  F(I-1,J-1)=1 !!! out of range for F 
 
       DO 101 J=1,J0
       X(I0,J)=0.d0

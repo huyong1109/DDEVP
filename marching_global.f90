@@ -1,9 +1,9 @@
 module domain
-  implicit none
-  include './resglo.h'
-  
-  integer,parameter :: i01=i0+1,i0t1=i0t+1,j01=j0+1,j0t1=j0t+1,&
-    nbg0=nb0*ngy0,nbg1=nbg0-1,ibir=i2t/ngy0
+implicit none
+include './resglo.h'
+
+integer,parameter :: i01=i0+1,i0t1=i0t+1,j01=j0+1,j0t1=j0t+1,&
+  nbg0=nb0*ngy0,nbg1=nbg0-1,ibir=i2t/ngy0
 
 end module domain
 
@@ -12,14 +12,13 @@ use mpi
 implicit none
 
 character, public :: grd*7
-integer, public   :: mpi_comm_2d,mpi_comm_lon,mpi_comm_lat,nproc,myid, & 
+integer, public   :: mpi_comm_2d,mpi_comm_lon,mpi_comm_lat,nproc, myid,& 
   mylon, mylat,ierr,mpi_n,mpi_e,mpi_s,mpi_w, istat(MPI_STATUS_SIZE)
-
 public :: mpi_grid_gen
 
 contains
 subroutine mpi_grid_gen
-  use domain
+  use domain, only : ngx0, ngy0
 
   integer, dimension(2) ::  ndim
   logical, dimension(2) ::  peri,rdim1,rdim2
@@ -54,7 +53,7 @@ subroutine mpi_grid_gen
   !  -------------------------------
 
   write(grd,'(i3.3,a1,i3.3)')mylon,'_',mylat
-  write(*,*) '      myid         up           dwon           left    right'
+  if(myid.eq.0) write(*,*) '      myid         up           dwon           left    right'
   write(*,*) myid, mpi_n, mpi_s, mpi_w, mpi_e
 
 end subroutine MPI_GRID_GEN
@@ -67,95 +66,90 @@ end module MPI_GRID
 !               PREP for rep                     !
 !================================================!
 PROGRAM MAIN
-  use mpi
-  use domain
-  use mpi_grid
-  
-  implicit none
-  
-  
-  real*8  :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1),h(i0,j0),ie(nb0)
-  real*8, dimension(i2,j2) :: al,ab,ac,ar
-  real*8, dimension(i2,0:j2) :: at
-  real*8 by,ay,bx,ax,dx,dy
-  real*8 time
-  integer :: n, nprocs, i,j
+use mpi
+use domain
+use mpi_grid
+
+implicit none
+
+real*8  :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1),h(i0,j0)
+integer :: ie(nb0)
+real*8, dimension(i2,j2) :: al,ab,ac,ar
+real*8, dimension(i2,0:j2) :: at
+real*8 by,ay,bx,ax,dx,dy
+real*8 time
+integer :: n, nprocs, i,j
 
 
-  call mpi_init(ierr)
-  call mpi_comm_size(mpi_comm_world,nprocs,ierr)
-  call mpi_comm_rank(mpi_comm_world,myid,ierr)
-  
-  if (nprocs .ne. ng0) then
-    print*,'number of processors are not equal to ng0'
-    call mpi_finalize(ierr)
-    stop
-  endif
-  
-  do n=1,nb0
-    ie(n)=min(1+n0*n,j1)
-  end do
-  write(*,*) 'ie :', ie(:)
-  if (ie(nb0).le.ie(nb1).or.j1.ge.ie(nb1)+9) then
-    write(*,252) ie(nb1),j1
-    252  format('ie(nb1),j1=',2i5,' not properly defined. ' &
-      ,'fix above do 250 loop and restart.') 
-  endif
-  
-  call mpi_grid_gen
-  
-  ie(nb0)=j1
-  
-  by=1
-  bx=1
-  ax=0
-  ay=0      
-  
-  dy=(by-ay)/dble(j0t)
-  dx=(bx-ax)/dble(i0t)
-  
-  open(199,file='./log'//grd,form='formatted')
-  
-  time=mpi_wtime()
-  
-  do j=1,j2
-    do i=1,i2
-      at(i,j)=1/dy/dy 
-      ab(i,j)=1/dy/dy
-      ar(i,j)=1/dx/dx
-      al(i,j)=1/dx/dx
-      ac(i,j)=-2*(1/dx/dx+1/dy/dy) 
-    end do 
-  end do 
-  !   ---------------------
-  !          AT
-  !          |
-  !   AL --- AC ---  AR
-  !          |
-  !          AB
-  !   ---------------------
-  
-  call pre(al,ab,ac,ar,at,rinv,rinv1,h,ie)
-  
-  
-  open(99,file='./data/evp'//grd,form='formatted')
-  rewind 99
-  write(99,*) al,ar,ab,at,ac
-  write(99,*) "rinv"
-  write(99,*) rinv
-  write(99,*) "rinv"
-  write(99,*) rinv1
-  write(99,*) ie
-  close(99)
-  
-  if(myid == 0) then
-    print*,'EVP PREP has finished successfully.'
-  endif
-  call solver
-  
-  close(199)
+call mpi_init(ierr)
+call mpi_comm_size(mpi_comm_world,nprocs,ierr)
+call mpi_comm_rank(mpi_comm_world,myid,ierr)
 
+if (nprocs .ne. ng0) then
+  if(myid == 0) print*,'number of processors are not equal to ng0'
   call mpi_finalize(ierr)
+  stop
+endif
+
+do n=1,nb0
+  ie(n)=min(1+n0*n,j1)
+end do
+write(*,*) 'ie :', ie(:)
+if (ie(nb0).le.ie(nb1).or.j1.ge.ie(nb1)+9) then
+  if(myid.eq.0) write(*,252) ie(nb1),j1
+  252  format('ie(nb1),j1=',2i5,' not properly defined. ' &
+    ,'fix above do 250 loop and restart.') 
+endif
+
+call mpi_grid_gen
+
+ie(nb0)=j1
+
+by=1
+bx=1
+ax=0
+ay=0      
+
+dy=(by-ay)/dble(j0t)
+dx=(bx-ax)/dble(i0t)
+
+open(199,file='./log'//grd,form='formatted')
+
+time=mpi_wtime()
+
+do j=1,j2
+  do i=1,i2
+    at(i,j)=1/dy
+    ab(i,j)=1/dy
+    ar(i,j)=1/dx
+    al(i,j)=1/dx
+    ac(i,j)=-2*(1/dx+1/dy) 
+  end do 
+end do 
+!   ---------------------
+!          AT
+!          |
+!   AL --- AC ---  AR
+!          |
+!          AB
+!   ---------------------
+
+call pre(al,ab,ac,ar,at,rinv,rinv1,h,ie)
+
+
+open(99,file='./data/evp'//grd,form='unformatted')
+rewind 99
+write(99) al,ar,ab,at,ac,rinv,rinv1,ie
+close(99)
+
+if(myid == 0) then
+  print*,'EVP PREP has finished successfully.'
+endif
+call solver
+
+close(199)
+
+call mpi_finalize(ierr)
 
 end PROGRAM MAIN
 
@@ -166,7 +160,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   implicit none
 
   !INPUT VARIABLES
-  real*8, dimension(nb0),intent(in)        :: ie
+  integer, dimension(nb0),intent(in)        :: ie
   real*8, dimension(i2,j2),intent(in)      :: ax, ay, bb, cx
   real*8, dimension(i2,0:j2),intent(inout) :: cy
 
@@ -185,7 +179,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
   real*8,dimension(i2)      :: ct
   real*8,dimension(i2t)     :: ipvt
   real*8                    :: ctemp
-  
+
 
   ct(:) = 0.d0
   do ng = 1, ngy0 !loop 100 : proceed by mpi_comm_lat
@@ -201,27 +195,20 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
         end do
       end do
     endif
-    
-        write(199,*)   'cy:'
-        write(199,*)   cy(:,:)
+
 
     if (mylat == ng-2) then !!! ??? boundary along y 
       do i =1, i2
         ct(i) = cy(i,j2)
       end do
     end if
-    
+
     nsd=i2*j2
     call mpi_bcast(axt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
     call mpi_bcast(ayt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
     call mpi_bcast(bbt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
     call mpi_bcast(cxt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
-
-        write(199,*)   'cyt before bcast:, nsd', nsd
-        write(199,*)   cyt(:,:)
     call mpi_bcast(cyt,nsd,mpi_real8,ng-1,mpi_comm_lat,ierr)
-        write(199,*)   'cyt after bcast:'
-        write(199,*)   cyt(:,:)
     if (ng /= 1)  &
       call mpi_bcast(ct,i2,mpi_real8,ng-2,mpi_comm_lat,ierr)
 
@@ -233,14 +220,13 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
 
     do nb = 1, nb0  !!! proceed by block on ng
       nbg = (ng-1)*nb0+nb !!! global block index
-      write(*,*) nb, nb, nb0
-      write(*,111) nbg,nbg0
+      if(myid == 0 )  write(*,111) nbg,nbg0
       111  format ('processing block #',i3,' out of ',i3,' total evp solver')
       jh=ie(nb)  !!! last line of #nb block, initial line of netx block
       jhp=jh+1   !!! up boundary of #nb block second(guess) line of #(nb+1) block
       jhm=jh-2
       jg=jl+1    !!! guess line
-      
+
       !!!! different comm_lat processors handle different initial value case for block ng
       !!!! each comm_lat has i2t/ngy0 cases
       do ii =1, ibir
@@ -269,7 +255,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
         !!! otherwise, it comes from south processor
         if (nbg .ne. 1) then
           if (idxy .eq. mylon) then
-              inmod = mod(ig-1,i2)+1
+            inmod = mod(ig-1,i2)+1
             if (nb .ne. 1) then
               ctemp=cyt(inmod,jg-2)
             else
@@ -299,8 +285,6 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
             mpi_real8,mpi_w,1,mpi_comm_world,istat,ierr)
         end do
 
-        write(199,*) 'HHHHH'
-        write(199,*) h(:,:)
 
         !!! F error
         j=jh-1
@@ -322,11 +306,6 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
         endif
 
       enddo
-      
-
-      write(*,*) 'PRE nb= ', nbg
-      write(*,*) 'rinv'
-      write(*,'(4f11.5)') rinv(:,:,nbg)
 
 
       !!! gather rinv for each block
@@ -347,7 +326,7 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
               jt=j+(nx-1)*i2
               do  i=1,ibir
                 it=i+(ny-1)*ibir
-                  rtemp(it,jt)=rp(nt+i)
+                rtemp(it,jt)=rp(nt+i)
               end do
             end do
           end do
@@ -370,9 +349,8 @@ subroutine pre(ax,ay,bb,cx,cy,rinv,rinv1,h,ie)
       endif
 
       call mpi_bcast(info,1,mpi_integer,0,mpi_comm_world,ierr)
-      print*,'info =',info
       if (info .ne. 0) then
-        print*,'preporcessor failed because rinv is singular at nbg =',nbg
+        if(myid == 0) print*,'preporcessor failed because rinv is singular at nbg =',nbg
         call mpi_finalize(ierr)
         stop
       endif
@@ -443,7 +421,7 @@ subroutine pre_check(ax,ay,bb,cx,cy,rinv,rinv1,ie)
   implicit none
 
   !INPUT VARIABLES
-  real*8, dimension(nb0),intent(in)        :: ie
+  integer, dimension(nb0),intent(in)        :: ie
   real*8, dimension(i2,j2),intent(in)      :: ax, ay, bb, cx
   real*8, dimension(i2,0:j2),intent(inout) :: cy
 
@@ -452,8 +430,8 @@ subroutine pre_check(ax,ay,bb,cx,cy,rinv,rinv1,ie)
   real*8, dimension(ibir, i0, nbg1),intent(inout) :: rinv1
 
   !LOCAL VARIABLES
-  integer :: i,j,k,jl,jh,jg,jhm,ii,ig,jhp,it,jt,jss,jff,info
-  integer :: n,nsd,ng,nb,nbg,idxy, nsend,nx,ny,ngt,ngxt,nt
+  
+  !!! TO DO
 
 
 end subroutine pre_check
@@ -466,7 +444,8 @@ subroutine solver
   real*8 :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1)
   real*8 :: dum0(i0,nb0), dum1(ibir),dum2(i0),dumg(i2t)
   real*8 :: f(i2,j2),x(i0,j0)
-  real*8 :: al(i2,j2),ab(i2,j2),ac(i2,j2),ar(i2,j2),at(i2,0:j2) ,s(i2,j2),ie(nb0)
+  real*8 :: al(i2,j2),ab(i2,j2),ac(i2,j2),ar(i2,j2),at(i2,0:j2)
+  integer:: ie(nb0)
 
   integer :: i,j
   real*8 :: time
@@ -474,49 +453,39 @@ subroutine solver
 
 
   ! set initial and left-hand value
-  !do j=2,j1
-  !  do i=2,i1
-  !    x(i,j)=0.d0
-  !    f(i-1,j-1)=1
-  !  enddo 
-  !enddo
+  do j=2,j1
+    do i=2,i1
+      x(i,j)=0.d0
+      f(i-1,j-1)=1
+    enddo 
+  enddo
 
-  !do j=1,j0
-  !  x(i0,j)=0.d0
-  !  x(1,j)=0.d0
-  !enddo
+  do j=1,j0
+    x(i0,j)=0.d0
+    x(1,j)=0.d0
+  enddo
 
-  !do i=1,i0
-  !  x(i,1)=0.d0
-  !  x(i,j0)=0.d0
-  !enddo
+  do i=1,i0
+    x(i,1)=0.d0
+    x(i,j0)=0.d0
+  enddo
 
-  time=mpi_wtime()
   open(99,file='./data/evp'//grd,form='unformatted')
   if(myid.eq.0) write(*,*)'evp solver'
   read(99) al,ar,ab,at,ac,rinv,rinv1,ie
   close(99)
   ! test case 
-  x(:,:) = 1.0
 
-
-
-  do  j=1,j2
-  do  i=1,i2
-     f(i,j)= al(i,j)*x(i,j+1)+ab(i,j)*x(i+1,j)+ac(i,j)* &
-      x(i+1,j+1)+ar(i,j)*x(i+2,j+1)+at(i,j)*x(i+1,j+2)
-    write(*,*) i,j,f(i,j)
-  enddo
-  enddo
-
-  call rep(al,ab,ac,ar,at,rinv,rinv1,dum0,dum1,dum2,dumg,s,x,ie)
-
+  time=mpi_wtime()
+  call rep(al,ab,ac,ar,at,rinv,rinv1,f,x,ie)
+  call rep_check(al,ab,ac,ar,at,f,x)
+  
   time=mpi_wtime()-time
-  print*,myid,time/1000
-
-  write(*,*) x(2:i1,2:j1)
-  open(99,file='./evpans'//grd,form='unformatted')
-  write(99) x(2:i1,2:j1)
+  call mpi_barrier(mpi_comm_world,ierr)
+  print*,'myid', myid, 'runtime =', time/1000
+  
+  open(99,file='./glo'//grd//'.out',form='formatted')
+  write(99,*) x(2:i1,2:j1)
   close(99)
 
 
@@ -525,18 +494,20 @@ end subroutine solver
 
 
 ! --------------------------REP2 from Global.F--------------------------------------------
-subroutine rep(ax,ay,bb,cx,cy,rinv,rinv1,dum0,dum1,dum2,dumg,f,x,ie) 
-! ----------------------------------------------------------------------
+subroutine rep(ax,ay,bb,cx,cy,rinv,rinv1,f,x,ie) 
+  ! ----------------------------------------------------------------------
   use mpi  
   use domain
   use mpi_grid
   implicit none
   !!!INPUT 
-  real*8 :: ax(i2,j2),ay(i2,j2),bb(i2,j2),cx(i2,j2),cy(i2,0:j2), &
-    f(i2,j2),rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1),ie(nb0),&
-    dum0(i0,nb0),dum1(ibir),dum2(i0),x(i0,j0),dumg(i2t)
+  real*8, dimension(i2,j2), intent(in) :: ax,ay,bb,cx,f
+  real*8, intent(in) :: rinv(ibir,i0,nbg0),rinv1(ibir,i0,nbg1)
+  integer,intent(in) :: ie(nb0)
+  real*8, intent(inout) :: cy(i2,0:j2),x(i0,j0)
 
   !!!LOCAL
+  real*8  :: dum0(i0,nb0),dum1(ibir),dum2(i0),dumg(i2t)
   integer :: i,j,jsp,jfp
   integer :: n,m,ng,nb,nbs,nbg
   real*8  :: dd
@@ -686,3 +657,35 @@ subroutine rep(ax,ay,bb,cx,cy,rinv,rinv1,dum0,dum1,dum2,dumg,f,x,ie)
 
 end subroutine rep
 
+subroutine rep_check(ax,ay,bb,cx,cy,f,x) 
+  ! ----------------------------------------------------------------------
+  use domain
+  use mpi_grid
+  implicit none
+  !!!INPUT 
+  real*8, dimension(i2,j2), intent(in) :: ax,ay,bb,cx,f
+  real*8, dimension(i2,0:j2), intent(in) :: cy
+  real*8, intent(in) :: x(i0,j0)
+
+  !!!LOCAL
+  integer :: i,j,flag
+  real*8  :: rtemp
+  flag = 0
+  do j = 1, j2
+    do i = 1, i2
+      rtemp=f(i,j)-ax(i,j)*x(i,j+1)-ay(i,j)*x(i+1,j)-bb(i,j)* &
+        x(i+1,j+1)-cx(i,j)*x(i+2,j+1)-cy(i,j)*x(i+1,j+2)
+      if (rtemp > 1.0e-6 )  then
+        write(*,*) myid, i, j, rtemp
+        flag = flag +1
+      endif
+    enddo
+  enddo
+  if (flag == 0 )  then
+    write(*,*) 'PRE_CHECK PASS on ', myid
+  else 
+    write(*,*) 'PRE_CHECK FAIL on ', myid, 'flag ', flag
+  endif
+
+
+end subroutine rep_check

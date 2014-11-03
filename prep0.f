@@ -4,12 +4,12 @@ C ----------------------------------------------------------------------
       INCLUDE 'mpif.h'
 C NGRID : total proc; NB0: blocks in each proc; NBG0: total
 C blocks
-      PARAMETER(NGRID=4,I0=19,J0=66,NB0=4,NBG0=NB0*NGRID)
+      PARAMETER(NGRID=4,I0=8,J0=10,NB0=2,NBG0=NB0*NGRID)
       PARAMETER(IJ0=I0+J0,IJ1=IJ0-1,I1=I0-1,I2=I0-2,I3=I0-3,J1=J0-1,
      1 J2=J0-2,J3=J0-3,NB1=NB0-1)
       REAL*8 RINV,RINV1,DUM0,DUM1,DUM2,X,H
       REAL*8 EHAT,CCOL,BINV,CINV,ETMP,EBUF
-      REAL AL,AB,AC,AR,AT,DX,DY
+      REAL*8 AL,AB,AC,AR,AT,DX,DY
       REAL*8 BY,AY,BX,AX
       INTEGER ID,IP,IM,JS,JF,IDM,NNY
       INTEGER   LEFT,RIGHT,MYID,IERR,NSEND,ISTAT,IREQ
@@ -86,6 +86,14 @@ C       Determine start line of each block. forward & backward
       DO 320 NB=1,NB0
       DO 320 J=1,J2
  320  EHAT(J,J,JS(NB),IP(NB)+1)=1.d0
+
+
+      write(fname,'(a6,i2.2,a4)')'idipim',myid,'.log'
+      open(99,file=fname,form='formatted')
+      rewind 99
+      write(99,*) id,ip,im,js,jf
+      close(99)
+
       DO 325 J=1,J2
       EHAT(J,J,I1,2)=1.d0
  325  EHAT(J,J,1,1)=1.d0
@@ -218,7 +226,10 @@ C      if (.false.) then
      1                 mpi_REAL8,0,mpi_comm_world,ierr)
       write(fname,'(A3,I2.2,A4)')'Inf',MYID,'.out'
       OPEN(99,file=fname,form='unformatted')
-      WRITE(99) AL,AR,AB,AT,AC,Ccol,EHAT,IDM,IP,ID,IM,JS,JF
+      WRITE(99) al,ab,ac,ar,at,ccol,id,ip,im,js,jf
+      write(fname,'(A3,I2.2,A4)')'Inf',MYID,'.log'
+      OPEN(99,file=fname,form='formatted')
+      WRITE(99,*) al,ab,ac,ar,at,ccol,id,ip,im,js,jf
       print*,'EVP has finished successfully.'
       call mpi_finalize(ierr)
       END

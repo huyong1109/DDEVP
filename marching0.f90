@@ -1,14 +1,15 @@
 module domain
 use mpi
 implicit none
+include './resglo1.h'
 
-integer, parameter :: ngrid=4,i0=8,j0=10,nb0=2,nbg0=nb0*ngrid
 integer, parameter :: i1=i0-1,i2=i0-2,i3=i0-3,& 
                       j1=j0-1, j2=j0-2,j3=j0-3,nb1=nb0-1
 !!! Define domain
 real*8,parameter  :: by =1.,ay=0.,bx=1.,ax=0.
 !!!intensive used variables
 integer :: myid,ierr,istat(mpi_status_size)
+integer :: left, right
 character*50 :: fname
 
 
@@ -44,6 +45,10 @@ if (nprocs .ne. ngrid) then
   stop
 endif
 
+left=myid-1
+right=myid+1
+if (myid .eq. 0) left=ngrid-1
+if (myid .eq. ngrid-1) right=0
 
 !!! Prepocessing 
 time=mpi_wtime()
@@ -84,7 +89,6 @@ subroutine pre(al,ab,ac,ar,at,ccol,id,ip,im,js,jf)
   integer   :: ipvt(nbg0*j2)
   integer :: i,j,k,l,jj,ii1,ii2,info
   integer :: nb,nny,nsend
-  integer :: left, right
   real*8 :: binv(nbg0*j2,nbg0*j2),cinv(nbg0*j2,nbg0*j2), &
         etmp(j2,j2,2,nb0,2),ebuf(j2,j2,4),ehat(j2,j2,i0,2)
   real*8  :: fw, bw
@@ -117,10 +121,6 @@ subroutine pre(al,ab,ac,ar,at,ccol,id,ip,im,js,jf)
     ip(nb)=mod(nb,2)
     im(nb)=mod(nb+1,2)
   enddo
-  left=myid-1
-  right=myid+1
-  if (myid .eq. 0) left=ngrid-1
-  if (myid .eq. ngrid-1) right=0
 
 
 
@@ -399,8 +399,7 @@ subroutine rep(al,ab,ac,ar,at,ccol,id,ip,im,js,jf,f,x)
   real*8, intent(inout):: x(i0,j0)
 
   !!!LOCAL
-  integer:: nny
-  integer:: left,right,nsend
+  integer:: nny, nsend
   real*8 :: etmp(j2,j2,2,nb0,2),ebuf(j2,j2,4)
   real*8 :: r(nb0*j2),rb(nbg0*j2)
   real*8 :: fw,bw
@@ -414,10 +413,6 @@ subroutine rep(al,ab,ac,ar,at,ccol,id,ip,im,js,jf,f,x)
   write(99,*) al,ab,ac,ar,at,ccol,id,ip,im,js,jf
   close(99)
 
-  left=myid-1
-  right=myid+1
-  if (myid .eq. 0) left=ngrid-1
-  if (myid .eq. ngrid-1) right=0
 
   do nb=1,nb0
     !write(*,*) 'js jf id ',js(nb),jf(nb)-id(nb),id(nb) 
