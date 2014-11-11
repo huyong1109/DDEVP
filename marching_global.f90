@@ -87,12 +87,12 @@ endif
 
 
 call mpi_grid_gen
-open(999,file='./db'//grd//'.info',form='formatted')
+!open(999,file='./db'//grd//'.info',form='formatted')
 
 call solver
 
 
-close(999)
+!close(999)
 call mpi_finalize(ierr)
 
 end PROGRAM MAIN
@@ -394,6 +394,7 @@ subroutine poission(al,ab,ac,ar,at,xt,f)
   real*8 :: px,py,pt,time
   real*8,parameter :: PI =3.141592653589793239
 
+  if(myid == 0) write(*,*) 'Set a poission equation  : \Delta u =-8Pi**2*sin(2PI*(x+y))'
 
   by=0.5
   bx=0.5
@@ -522,20 +523,12 @@ subroutine solver
   if(myid == 0) then
     print*, 'EVP time =', maxtime/1000 
   endif
-
+  
+  ! check EVP consistency
   call rep_check(al,ab,ac,ar,at,f,x)
-  !write(999,*) "=========f==================="
-  !write(999,'(8f7.3)') f(:,:)
-  !write(999,*) "=========xt==================="
-  !write(999,'(10f7.3)') xt(:,:)
-  !write(999,*) "=========x==================="
-  !write(999,'(10f7.3)') x(:,:)
+  ! check EVP result with the analytical result
   call rep_check1(xt,x)
   
-  
-  !open(99,file='./sol'//grd//'.out',form='formatted')
-  !write(99,'(10f7.3)') x(:,:) !x(2:i1,2:j1)
-  !close(99)
 
 
 end subroutine solver
@@ -754,7 +747,7 @@ subroutine rep_check(ax,ay,bb,cx,cy,f,x)
     do i = 1, i2
       rtemp=f(i,j)-ax(i,j)*x(i,j+1)-ay(i,j)*x(i+1,j)-bb(i,j)* &
         x(i+1,j+1)-cx(i,j)*x(i+2,j+1)-cy(i,j)*x(i+1,j+2)
-      if (rtemp > 1.0e-5 )  then
+      if (rtemp > 1.0e-3 )  then
         write(*,*) myid, i, j, rtemp
         flag = flag +1
       endif
@@ -768,75 +761,3 @@ subroutine rep_check(ax,ay,bb,cx,cy,f,x)
 
 
 end subroutine rep_check
-!subroutine comb_matrix(mat)
-!  ! ----------------------------------------------------------------------
-!  use mpi
-!  use domain
-!  use mpi_grid
-!  implicit none
-!  !!!INPUT 
-!  real*8, dimension(i0,j0), intent(in) :: mat
-!
-!  !!!LOCAL
-!  real*8 :: cmat(i0t,j0t)
-!  integer :: i,j,m,n
-!  call mpi_
-!  do m = 0,ngx0-1
-!    do n = 0,ngy0-1
-!       cmat(m*i2+2:(m+1)*i2,n*j2+2:(n+1)*j2) = mat(2:i1,2:j1)
-!    enddo
-!  enddo
-!  if (mylon == 0) then
-!    do j=1,j0
-!       cmat(1,n*j2+2:(n+1)*j2) = mat(2:i1,2:j1)
-!    enddo
-!  endif
-!  if (mylon == ngx0-1) then
-!    do j=1,j0
-!      px = bx
-!      py = ay+dble(mylat*j2+j)*dy
-!      pt = 0.5*(px**2+py**2)
-!      xt(i0,j)=exp(-pt)
-!    enddo
-!  endif
-!  if (mylat == 0) then
-!    do i=1,i0
-!      px = ax+dble(mylon*i2+i)*dy
-!      py = ay
-!      pt = 0.5*(px**2+py**2)
-!      xt(i,1)=exp(-pt)
-!    enddo
-!  endif
-!  if (mylat == ngy0-1) then
-!    do i=1,i0
-!      py = by
-!      px = ax+dble(mylon*i2+i)*dy
-!      pt = 0.5*(px**2+py**2)
-!      xt(i,j0)=exp(-pt)
-!    enddo
-!  endif
-!  write(999,'(18f5.2)') cmat
-!
-!
-!end subroutine comb_matrix
-!subroutine comb_matrix1(mat)
-!  ! ----------------------------------------------------------------------
-!  use domain
-!  use mpi_grid
-!  implicit none
-!  !!!INPUT 
-!  real*8, dimension(i2,j2), intent(in) :: mat
-!
-!  !!!LOCAL
-!  real*8 :: cmat(i0t,j0t)
-!  integer :: i,j,m,n
-!  do m = 0,ngx0-1
-!    do n = 0,ngy0-1
-!       cmat(m*i2+2:(m+1)*i2,n*j2+2:(n+1)*j2) = mat(:,:)
-!    enddo
-!  enddo
-!  write(999,'(18f5.2)') cmat
-!
-!
-!end subroutine comb_matrix1
-
